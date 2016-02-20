@@ -2895,6 +2895,116 @@ Elm.Native.Signal.make = function(localRuntime) {
 	};
 };
 
+Elm.Native.Time = {};
+
+Elm.Native.Time.make = function(localRuntime)
+{
+	localRuntime.Native = localRuntime.Native || {};
+	localRuntime.Native.Time = localRuntime.Native.Time || {};
+	if (localRuntime.Native.Time.values)
+	{
+		return localRuntime.Native.Time.values;
+	}
+
+	var NS = Elm.Native.Signal.make(localRuntime);
+	var Maybe = Elm.Maybe.make(localRuntime);
+
+
+	// FRAMES PER SECOND
+
+	function fpsWhen(desiredFPS, isOn)
+	{
+		var msPerFrame = 1000 / desiredFPS;
+		var ticker = NS.input('fps-' + desiredFPS, null);
+
+		function notifyTicker()
+		{
+			localRuntime.notify(ticker.id, null);
+		}
+
+		function firstArg(x, y)
+		{
+			return x;
+		}
+
+		// input fires either when isOn changes, or when ticker fires.
+		// Its value is a tuple with the current timestamp, and the state of isOn
+		var input = NS.timestamp(A3(NS.map2, F2(firstArg), NS.dropRepeats(isOn), ticker));
+
+		var initialState = {
+			isOn: false,
+			time: localRuntime.timer.programStart,
+			delta: 0
+		};
+
+		var timeoutId;
+
+		function update(input, state)
+		{
+			var currentTime = input._0;
+			var isOn = input._1;
+			var wasOn = state.isOn;
+			var previousTime = state.time;
+
+			if (isOn)
+			{
+				timeoutId = localRuntime.setTimeout(notifyTicker, msPerFrame);
+			}
+			else if (wasOn)
+			{
+				clearTimeout(timeoutId);
+			}
+
+			return {
+				isOn: isOn,
+				time: currentTime,
+				delta: (isOn && !wasOn) ? 0 : currentTime - previousTime
+			};
+		}
+
+		return A2(
+			NS.map,
+			function(state) { return state.delta; },
+			A3(NS.foldp, F2(update), update(input.value, initialState), input)
+		);
+	}
+
+
+	// EVERY
+
+	function every(t)
+	{
+		var ticker = NS.input('every-' + t, null);
+		function tellTime()
+		{
+			localRuntime.notify(ticker.id, null);
+		}
+		var clock = A2(NS.map, fst, NS.timestamp(ticker));
+		setInterval(tellTime, t);
+		return clock;
+	}
+
+
+	function fst(pair)
+	{
+		return pair._0;
+	}
+
+
+	function read(s)
+	{
+		var t = Date.parse(s);
+		return isNaN(t) ? Maybe.Nothing : Maybe.Just(t);
+	}
+
+	return localRuntime.Native.Time.values = {
+		fpsWhen: F2(fpsWhen),
+		every: every,
+		toDate: function(t) { return new Date(t); },
+		read: read
+	};
+};
+
 Elm.Native.Transform2D = {};
 Elm.Native.Transform2D.make = function(localRuntime) {
 	localRuntime.Native = localRuntime.Native || {};
@@ -6091,6 +6201,61 @@ Elm.Signal.make = function (_elm) {
                                ,forwardTo: forwardTo
                                ,Mailbox: Mailbox};
 };
+Elm.Time = Elm.Time || {};
+Elm.Time.make = function (_elm) {
+   "use strict";
+   _elm.Time = _elm.Time || {};
+   if (_elm.Time.values) return _elm.Time.values;
+   var _U = Elm.Native.Utils.make(_elm),
+   $Basics = Elm.Basics.make(_elm),
+   $Native$Signal = Elm.Native.Signal.make(_elm),
+   $Native$Time = Elm.Native.Time.make(_elm),
+   $Signal = Elm.Signal.make(_elm);
+   var _op = {};
+   var delay = $Native$Signal.delay;
+   var since = F2(function (time,signal) {
+      var stop = A2($Signal.map,
+      $Basics.always(-1),
+      A2(delay,time,signal));
+      var start = A2($Signal.map,$Basics.always(1),signal);
+      var delaydiff = A3($Signal.foldp,
+      F2(function (x,y) {    return x + y;}),
+      0,
+      A2($Signal.merge,start,stop));
+      return A2($Signal.map,
+      F2(function (x,y) {    return !_U.eq(x,y);})(0),
+      delaydiff);
+   });
+   var timestamp = $Native$Signal.timestamp;
+   var every = $Native$Time.every;
+   var fpsWhen = $Native$Time.fpsWhen;
+   var fps = function (targetFrames) {
+      return A2(fpsWhen,targetFrames,$Signal.constant(true));
+   };
+   var inMilliseconds = function (t) {    return t;};
+   var millisecond = 1;
+   var second = 1000 * millisecond;
+   var minute = 60 * second;
+   var hour = 60 * minute;
+   var inHours = function (t) {    return t / hour;};
+   var inMinutes = function (t) {    return t / minute;};
+   var inSeconds = function (t) {    return t / second;};
+   return _elm.Time.values = {_op: _op
+                             ,millisecond: millisecond
+                             ,second: second
+                             ,minute: minute
+                             ,hour: hour
+                             ,inMilliseconds: inMilliseconds
+                             ,inSeconds: inSeconds
+                             ,inMinutes: inMinutes
+                             ,inHours: inHours
+                             ,fps: fps
+                             ,fpsWhen: fpsWhen
+                             ,every: every
+                             ,timestamp: timestamp
+                             ,delay: delay
+                             ,since: since};
+};
 Elm.Native.String = {};
 
 Elm.Native.String.make = function(localRuntime) {
@@ -7287,6 +7452,541 @@ Elm.Dict.make = function (_elm) {
                              ,toList: toList
                              ,fromList: fromList};
 };
+Elm.Set = Elm.Set || {};
+Elm.Set.make = function (_elm) {
+   "use strict";
+   _elm.Set = _elm.Set || {};
+   if (_elm.Set.values) return _elm.Set.values;
+   var _U = Elm.Native.Utils.make(_elm),
+   $Basics = Elm.Basics.make(_elm),
+   $Dict = Elm.Dict.make(_elm),
+   $List = Elm.List.make(_elm);
+   var _op = {};
+   var foldr = F3(function (f,b,_p0) {
+      var _p1 = _p0;
+      return A3($Dict.foldr,
+      F3(function (k,_p2,b) {    return A2(f,k,b);}),
+      b,
+      _p1._0);
+   });
+   var foldl = F3(function (f,b,_p3) {
+      var _p4 = _p3;
+      return A3($Dict.foldl,
+      F3(function (k,_p5,b) {    return A2(f,k,b);}),
+      b,
+      _p4._0);
+   });
+   var toList = function (_p6) {
+      var _p7 = _p6;
+      return $Dict.keys(_p7._0);
+   };
+   var size = function (_p8) {
+      var _p9 = _p8;
+      return $Dict.size(_p9._0);
+   };
+   var member = F2(function (k,_p10) {
+      var _p11 = _p10;
+      return A2($Dict.member,k,_p11._0);
+   });
+   var isEmpty = function (_p12) {
+      var _p13 = _p12;
+      return $Dict.isEmpty(_p13._0);
+   };
+   var Set_elm_builtin = function (a) {
+      return {ctor: "Set_elm_builtin",_0: a};
+   };
+   var empty = Set_elm_builtin($Dict.empty);
+   var singleton = function (k) {
+      return Set_elm_builtin(A2($Dict.singleton,
+      k,
+      {ctor: "_Tuple0"}));
+   };
+   var insert = F2(function (k,_p14) {
+      var _p15 = _p14;
+      return Set_elm_builtin(A3($Dict.insert,
+      k,
+      {ctor: "_Tuple0"},
+      _p15._0));
+   });
+   var fromList = function (xs) {
+      return A3($List.foldl,insert,empty,xs);
+   };
+   var map = F2(function (f,s) {
+      return fromList(A2($List.map,f,toList(s)));
+   });
+   var remove = F2(function (k,_p16) {
+      var _p17 = _p16;
+      return Set_elm_builtin(A2($Dict.remove,k,_p17._0));
+   });
+   var union = F2(function (_p19,_p18) {
+      var _p20 = _p19;
+      var _p21 = _p18;
+      return Set_elm_builtin(A2($Dict.union,_p20._0,_p21._0));
+   });
+   var intersect = F2(function (_p23,_p22) {
+      var _p24 = _p23;
+      var _p25 = _p22;
+      return Set_elm_builtin(A2($Dict.intersect,_p24._0,_p25._0));
+   });
+   var diff = F2(function (_p27,_p26) {
+      var _p28 = _p27;
+      var _p29 = _p26;
+      return Set_elm_builtin(A2($Dict.diff,_p28._0,_p29._0));
+   });
+   var filter = F2(function (p,_p30) {
+      var _p31 = _p30;
+      return Set_elm_builtin(A2($Dict.filter,
+      F2(function (k,_p32) {    return p(k);}),
+      _p31._0));
+   });
+   var partition = F2(function (p,_p33) {
+      var _p34 = _p33;
+      var _p35 = A2($Dict.partition,
+      F2(function (k,_p36) {    return p(k);}),
+      _p34._0);
+      var p1 = _p35._0;
+      var p2 = _p35._1;
+      return {ctor: "_Tuple2"
+             ,_0: Set_elm_builtin(p1)
+             ,_1: Set_elm_builtin(p2)};
+   });
+   return _elm.Set.values = {_op: _op
+                            ,empty: empty
+                            ,singleton: singleton
+                            ,insert: insert
+                            ,remove: remove
+                            ,isEmpty: isEmpty
+                            ,member: member
+                            ,size: size
+                            ,foldl: foldl
+                            ,foldr: foldr
+                            ,map: map
+                            ,filter: filter
+                            ,partition: partition
+                            ,union: union
+                            ,intersect: intersect
+                            ,diff: diff
+                            ,toList: toList
+                            ,fromList: fromList};
+};
+Elm.Native.Keyboard = {};
+
+Elm.Native.Keyboard.make = function(localRuntime) {
+	localRuntime.Native = localRuntime.Native || {};
+	localRuntime.Native.Keyboard = localRuntime.Native.Keyboard || {};
+	if (localRuntime.Native.Keyboard.values)
+	{
+		return localRuntime.Native.Keyboard.values;
+	}
+
+	var NS = Elm.Native.Signal.make(localRuntime);
+
+
+	function keyEvent(event)
+	{
+		return {
+			alt: event.altKey,
+			meta: event.metaKey,
+			keyCode: event.keyCode
+		};
+	}
+
+
+	function keyStream(node, eventName, handler)
+	{
+		var stream = NS.input(eventName, { alt: false, meta: false, keyCode: 0 });
+
+		localRuntime.addListener([stream.id], node, eventName, function(e) {
+			localRuntime.notify(stream.id, handler(e));
+		});
+
+		return stream;
+	}
+
+	var downs = keyStream(document, 'keydown', keyEvent);
+	var ups = keyStream(document, 'keyup', keyEvent);
+	var presses = keyStream(document, 'keypress', keyEvent);
+	var blurs = keyStream(window, 'blur', function() { return null; });
+
+
+	return localRuntime.Native.Keyboard.values = {
+		downs: downs,
+		ups: ups,
+		blurs: blurs,
+		presses: presses
+	};
+};
+
+Elm.Keyboard = Elm.Keyboard || {};
+Elm.Keyboard.make = function (_elm) {
+   "use strict";
+   _elm.Keyboard = _elm.Keyboard || {};
+   if (_elm.Keyboard.values) return _elm.Keyboard.values;
+   var _U = Elm.Native.Utils.make(_elm),
+   $Basics = Elm.Basics.make(_elm),
+   $Char = Elm.Char.make(_elm),
+   $Native$Keyboard = Elm.Native.Keyboard.make(_elm),
+   $Set = Elm.Set.make(_elm),
+   $Signal = Elm.Signal.make(_elm);
+   var _op = {};
+   var presses = A2($Signal.map,
+   function (_) {
+      return _.keyCode;
+   },
+   $Native$Keyboard.presses);
+   var toXY = F2(function (_p0,keyCodes) {
+      var _p1 = _p0;
+      var is = function (keyCode) {
+         return A2($Set.member,keyCode,keyCodes) ? 1 : 0;
+      };
+      return {x: is(_p1.right) - is(_p1.left)
+             ,y: is(_p1.up) - is(_p1.down)};
+   });
+   var Directions = F4(function (a,b,c,d) {
+      return {up: a,down: b,left: c,right: d};
+   });
+   var dropMap = F2(function (f,signal) {
+      return $Signal.dropRepeats(A2($Signal.map,f,signal));
+   });
+   var EventInfo = F3(function (a,b,c) {
+      return {alt: a,meta: b,keyCode: c};
+   });
+   var Blur = {ctor: "Blur"};
+   var Down = function (a) {    return {ctor: "Down",_0: a};};
+   var Up = function (a) {    return {ctor: "Up",_0: a};};
+   var rawEvents = $Signal.mergeMany(_U.list([A2($Signal.map,
+                                             Up,
+                                             $Native$Keyboard.ups)
+                                             ,A2($Signal.map,Down,$Native$Keyboard.downs)
+                                             ,A2($Signal.map,$Basics.always(Blur),$Native$Keyboard.blurs)]));
+   var empty = {alt: false,meta: false,keyCodes: $Set.empty};
+   var update = F2(function (event,model) {
+      var _p2 = event;
+      switch (_p2.ctor)
+      {case "Down": var _p3 = _p2._0;
+           return {alt: _p3.alt
+                  ,meta: _p3.meta
+                  ,keyCodes: A2($Set.insert,_p3.keyCode,model.keyCodes)};
+         case "Up": var _p4 = _p2._0;
+           return {alt: _p4.alt
+                  ,meta: _p4.meta
+                  ,keyCodes: A2($Set.remove,_p4.keyCode,model.keyCodes)};
+         default: return empty;}
+   });
+   var model = A3($Signal.foldp,update,empty,rawEvents);
+   var alt = A2(dropMap,function (_) {    return _.alt;},model);
+   var meta = A2(dropMap,function (_) {    return _.meta;},model);
+   var keysDown = A2(dropMap,
+   function (_) {
+      return _.keyCodes;
+   },
+   model);
+   var arrows = A2(dropMap,
+   toXY({up: 38,down: 40,left: 37,right: 39}),
+   keysDown);
+   var wasd = A2(dropMap,
+   toXY({up: 87,down: 83,left: 65,right: 68}),
+   keysDown);
+   var isDown = function (keyCode) {
+      return A2(dropMap,$Set.member(keyCode),keysDown);
+   };
+   var ctrl = isDown(17);
+   var shift = isDown(16);
+   var space = isDown(32);
+   var enter = isDown(13);
+   var Model = F3(function (a,b,c) {
+      return {alt: a,meta: b,keyCodes: c};
+   });
+   return _elm.Keyboard.values = {_op: _op
+                                 ,arrows: arrows
+                                 ,wasd: wasd
+                                 ,enter: enter
+                                 ,space: space
+                                 ,ctrl: ctrl
+                                 ,shift: shift
+                                 ,alt: alt
+                                 ,meta: meta
+                                 ,isDown: isDown
+                                 ,keysDown: keysDown
+                                 ,presses: presses};
+};
+Elm.Random = Elm.Random || {};
+Elm.Random.make = function (_elm) {
+   "use strict";
+   _elm.Random = _elm.Random || {};
+   if (_elm.Random.values) return _elm.Random.values;
+   var _U = Elm.Native.Utils.make(_elm),
+   $Basics = Elm.Basics.make(_elm),
+   $List = Elm.List.make(_elm);
+   var _op = {};
+   var magicNum8 = 2147483562;
+   var range = function (_p0) {
+      return {ctor: "_Tuple2",_0: 0,_1: magicNum8};
+   };
+   var magicNum7 = 2137383399;
+   var magicNum6 = 2147483563;
+   var magicNum5 = 3791;
+   var magicNum4 = 40692;
+   var magicNum3 = 52774;
+   var magicNum2 = 12211;
+   var magicNum1 = 53668;
+   var magicNum0 = 40014;
+   var generate = F2(function (_p1,seed) {
+      var _p2 = _p1;
+      return _p2._0(seed);
+   });
+   var Seed = function (a) {    return {ctor: "Seed",_0: a};};
+   var State = F2(function (a,b) {
+      return {ctor: "State",_0: a,_1: b};
+   });
+   var initState = function (s$) {
+      var s = A2($Basics.max,s$,0 - s$);
+      var q = s / (magicNum6 - 1) | 0;
+      var s2 = A2($Basics._op["%"],q,magicNum7 - 1);
+      var s1 = A2($Basics._op["%"],s,magicNum6 - 1);
+      return A2(State,s1 + 1,s2 + 1);
+   };
+   var next = function (_p3) {
+      var _p4 = _p3;
+      var _p6 = _p4._1;
+      var _p5 = _p4._0;
+      var k$ = _p6 / magicNum3 | 0;
+      var s2$ = magicNum4 * (_p6 - k$ * magicNum3) - k$ * magicNum5;
+      var s2$$ = _U.cmp(s2$,0) < 0 ? s2$ + magicNum7 : s2$;
+      var k = _p5 / magicNum1 | 0;
+      var s1$ = magicNum0 * (_p5 - k * magicNum1) - k * magicNum2;
+      var s1$$ = _U.cmp(s1$,0) < 0 ? s1$ + magicNum6 : s1$;
+      var z = s1$$ - s2$$;
+      var z$ = _U.cmp(z,1) < 0 ? z + magicNum8 : z;
+      return {ctor: "_Tuple2",_0: z$,_1: A2(State,s1$$,s2$$)};
+   };
+   var split = function (_p7) {
+      var _p8 = _p7;
+      var _p11 = _p8._1;
+      var _p10 = _p8._0;
+      var _p9 = $Basics.snd(next(_p8));
+      var t1 = _p9._0;
+      var t2 = _p9._1;
+      var new_s2 = _U.eq(_p11,1) ? magicNum7 - 1 : _p11 - 1;
+      var new_s1 = _U.eq(_p10,magicNum6 - 1) ? 1 : _p10 + 1;
+      return {ctor: "_Tuple2"
+             ,_0: A2(State,new_s1,t2)
+             ,_1: A2(State,t1,new_s2)};
+   };
+   var initialSeed = function (n) {
+      return Seed({state: initState(n)
+                  ,next: next
+                  ,split: split
+                  ,range: range});
+   };
+   var Generator = function (a) {
+      return {ctor: "Generator",_0: a};
+   };
+   var andThen = F2(function (_p12,callback) {
+      var _p13 = _p12;
+      return Generator(function (seed) {
+         var _p14 = _p13._0(seed);
+         var result = _p14._0;
+         var newSeed = _p14._1;
+         var _p15 = callback(result);
+         var genB = _p15._0;
+         return genB(newSeed);
+      });
+   });
+   var map5 = F6(function (func,_p20,_p19,_p18,_p17,_p16) {
+      var _p21 = _p20;
+      var _p22 = _p19;
+      var _p23 = _p18;
+      var _p24 = _p17;
+      var _p25 = _p16;
+      return Generator(function (seed0) {
+         var _p26 = _p21._0(seed0);
+         var a = _p26._0;
+         var seed1 = _p26._1;
+         var _p27 = _p22._0(seed1);
+         var b = _p27._0;
+         var seed2 = _p27._1;
+         var _p28 = _p23._0(seed2);
+         var c = _p28._0;
+         var seed3 = _p28._1;
+         var _p29 = _p24._0(seed3);
+         var d = _p29._0;
+         var seed4 = _p29._1;
+         var _p30 = _p25._0(seed4);
+         var e = _p30._0;
+         var seed5 = _p30._1;
+         return {ctor: "_Tuple2",_0: A5(func,a,b,c,d,e),_1: seed5};
+      });
+   });
+   var map4 = F5(function (func,_p34,_p33,_p32,_p31) {
+      var _p35 = _p34;
+      var _p36 = _p33;
+      var _p37 = _p32;
+      var _p38 = _p31;
+      return Generator(function (seed0) {
+         var _p39 = _p35._0(seed0);
+         var a = _p39._0;
+         var seed1 = _p39._1;
+         var _p40 = _p36._0(seed1);
+         var b = _p40._0;
+         var seed2 = _p40._1;
+         var _p41 = _p37._0(seed2);
+         var c = _p41._0;
+         var seed3 = _p41._1;
+         var _p42 = _p38._0(seed3);
+         var d = _p42._0;
+         var seed4 = _p42._1;
+         return {ctor: "_Tuple2",_0: A4(func,a,b,c,d),_1: seed4};
+      });
+   });
+   var map3 = F4(function (func,_p45,_p44,_p43) {
+      var _p46 = _p45;
+      var _p47 = _p44;
+      var _p48 = _p43;
+      return Generator(function (seed0) {
+         var _p49 = _p46._0(seed0);
+         var a = _p49._0;
+         var seed1 = _p49._1;
+         var _p50 = _p47._0(seed1);
+         var b = _p50._0;
+         var seed2 = _p50._1;
+         var _p51 = _p48._0(seed2);
+         var c = _p51._0;
+         var seed3 = _p51._1;
+         return {ctor: "_Tuple2",_0: A3(func,a,b,c),_1: seed3};
+      });
+   });
+   var map2 = F3(function (func,_p53,_p52) {
+      var _p54 = _p53;
+      var _p55 = _p52;
+      return Generator(function (seed0) {
+         var _p56 = _p54._0(seed0);
+         var a = _p56._0;
+         var seed1 = _p56._1;
+         var _p57 = _p55._0(seed1);
+         var b = _p57._0;
+         var seed2 = _p57._1;
+         return {ctor: "_Tuple2",_0: A2(func,a,b),_1: seed2};
+      });
+   });
+   var map = F2(function (func,_p58) {
+      var _p59 = _p58;
+      return Generator(function (seed0) {
+         var _p60 = _p59._0(seed0);
+         var a = _p60._0;
+         var seed1 = _p60._1;
+         return {ctor: "_Tuple2",_0: func(a),_1: seed1};
+      });
+   });
+   var listHelp = F4(function (list,n,generate,seed) {
+      listHelp: while (true) if (_U.cmp(n,1) < 0)
+      return {ctor: "_Tuple2",_0: $List.reverse(list),_1: seed};
+      else {
+            var _p61 = generate(seed);
+            var value = _p61._0;
+            var newSeed = _p61._1;
+            var _v19 = A2($List._op["::"],value,list),
+            _v20 = n - 1,
+            _v21 = generate,
+            _v22 = newSeed;
+            list = _v19;
+            n = _v20;
+            generate = _v21;
+            seed = _v22;
+            continue listHelp;
+         }
+   });
+   var list = F2(function (n,_p62) {
+      var _p63 = _p62;
+      return Generator(function (seed) {
+         return A4(listHelp,_U.list([]),n,_p63._0,seed);
+      });
+   });
+   var pair = F2(function (genA,genB) {
+      return A3(map2,
+      F2(function (v0,v1) {
+         return {ctor: "_Tuple2",_0: v0,_1: v1};
+      }),
+      genA,
+      genB);
+   });
+   var minInt = -2147483648;
+   var maxInt = 2147483647;
+   var iLogBase = F2(function (b,i) {
+      return _U.cmp(i,b) < 0 ? 1 : 1 + A2(iLogBase,b,i / b | 0);
+   });
+   var $int = F2(function (a,b) {
+      return Generator(function (_p64) {
+         var _p65 = _p64;
+         var _p70 = _p65._0;
+         var base = 2147483561;
+         var f = F3(function (n,acc,state) {
+            f: while (true) {
+               var _p66 = n;
+               if (_p66 === 0) {
+                     return {ctor: "_Tuple2",_0: acc,_1: state};
+                  } else {
+                     var _p67 = _p70.next(state);
+                     var x = _p67._0;
+                     var state$ = _p67._1;
+                     var _v26 = n - 1,_v27 = x + acc * base,_v28 = state$;
+                     n = _v26;
+                     acc = _v27;
+                     state = _v28;
+                     continue f;
+                  }
+            }
+         });
+         var _p68 = _U.cmp(a,b) < 0 ? {ctor: "_Tuple2"
+                                      ,_0: a
+                                      ,_1: b} : {ctor: "_Tuple2",_0: b,_1: a};
+         var lo = _p68._0;
+         var hi = _p68._1;
+         var k = hi - lo + 1;
+         var n = A2(iLogBase,base,k);
+         var _p69 = A3(f,n,1,_p70.state);
+         var v = _p69._0;
+         var state$ = _p69._1;
+         return {ctor: "_Tuple2"
+                ,_0: lo + A2($Basics._op["%"],v,k)
+                ,_1: Seed(_U.update(_p70,{state: state$}))};
+      });
+   });
+   var $float = F2(function (a,b) {
+      return Generator(function (seed) {
+         var _p71 = A2(generate,A2($int,minInt,maxInt),seed);
+         var number = _p71._0;
+         var newSeed = _p71._1;
+         var negativeOneToOne = $Basics.toFloat(number) / $Basics.toFloat(maxInt - minInt);
+         var _p72 = _U.cmp(a,b) < 0 ? {ctor: "_Tuple2"
+                                      ,_0: a
+                                      ,_1: b} : {ctor: "_Tuple2",_0: b,_1: a};
+         var lo = _p72._0;
+         var hi = _p72._1;
+         var scaled = (lo + hi) / 2 + (hi - lo) * negativeOneToOne;
+         return {ctor: "_Tuple2",_0: scaled,_1: newSeed};
+      });
+   });
+   var bool = A2(map,
+   F2(function (x,y) {    return _U.eq(x,y);})(1),
+   A2($int,0,1));
+   return _elm.Random.values = {_op: _op
+                               ,bool: bool
+                               ,$int: $int
+                               ,$float: $float
+                               ,list: list
+                               ,pair: pair
+                               ,map: map
+                               ,map2: map2
+                               ,map3: map3
+                               ,map4: map4
+                               ,map5: map5
+                               ,andThen: andThen
+                               ,minInt: minInt
+                               ,maxInt: maxInt
+                               ,generate: generate
+                               ,initialSeed: initialSeed};
+};
 Elm.Block = Elm.Block || {};
 Elm.Block.make = function (_elm) {
    "use strict";
@@ -7339,9 +8039,11 @@ Elm.Tetromino.make = function (_elm) {
    $Graphics$Element = Elm.Graphics.Element.make(_elm),
    $List = Elm.List.make(_elm),
    $Maybe = Elm.Maybe.make(_elm),
+   $Random = Elm.Random.make(_elm),
    $Result = Elm.Result.make(_elm),
    $Signal = Elm.Signal.make(_elm);
    var _op = {};
+   var zeroToOne = A2($Random.$float,0,1);
    var shift = F2(function (_p0,tetromino) {
       var _p1 = _p0;
       var _p5 = _p1._0;
@@ -7446,6 +8148,21 @@ Elm.Tetromino.make = function (_elm) {
            ,pivot: {r: -0.5,c: 0.5}
            ,rows: 400
            ,cols: 1};
+   var shuffleBag = function (weights) {
+      var tetrominoes = _U.list([i,o,j,l,z,s,t]);
+      var weighted = A3($List.map2,
+      F2(function (v0,v1) {
+         return {ctor: "_Tuple2",_0: v0,_1: v1};
+      }),
+      weights,
+      tetrominoes);
+      var sorted = A2($List.sortBy,$Basics.fst,weighted);
+      return A2($List.map,$Basics.snd,sorted);
+   };
+   var bag = function () {
+      var weights = A2($Random.list,7,zeroToOne);
+      return A2($Random.map,shuffleBag,weights);
+   }();
    var toForm = function (_p12) {
       var _p13 = _p12;
       var form = $Block.toForm(_p13.block);
@@ -7460,10 +8177,17 @@ Elm.Tetromino.make = function (_elm) {
       var forms = A2($List.map,translate,_p13.shape);
       return $Graphics$Collage.group(forms);
    };
-   var main = A3($Graphics$Collage.collage,
-   400,
-   400,
-   _U.list([toForm(tetromino),drawPivot(tetromino)]));
+   var main = A2($Graphics$Element.flow,
+   $Graphics$Element.right,
+   A2($List.map,
+   function (f) {
+      return A3($Graphics$Collage.collage,80,80,_U.list([f]));
+   },
+   A2($List.map,
+   toForm,
+   $Basics.fst(A2($Random.generate,
+   bag,
+   $Random.initialSeed(43))))));
    var Tetromino = F5(function (a,b,c,d,e) {
       return {shape: a,block: b,pivot: c,rows: d,cols: e};
    });
@@ -7482,6 +8206,9 @@ Elm.Tetromino.make = function (_elm) {
                                   ,rotate: rotate
                                   ,shift: shift
                                   ,tetromino: tetromino
+                                  ,zeroToOne: zeroToOne
+                                  ,shuffleBag: shuffleBag
+                                  ,bag: bag
                                   ,main: main};
 };
 Elm.Board = Elm.Board || {};
@@ -7496,18 +8223,44 @@ Elm.Board.make = function (_elm) {
    $Debug = Elm.Debug.make(_elm),
    $Dict = Elm.Dict.make(_elm),
    $Graphics$Collage = Elm.Graphics.Collage.make(_elm),
+   $Graphics$Element = Elm.Graphics.Element.make(_elm),
    $List = Elm.List.make(_elm),
    $Maybe = Elm.Maybe.make(_elm),
    $Result = Elm.Result.make(_elm),
    $Signal = Elm.Signal.make(_elm),
    $Tetromino = Elm.Tetromino.make(_elm);
    var _op = {};
-   var tetromino = $Tetromino.j;
-   var tetromino$ = A2($Tetromino.shift,
-   {ctor: "_Tuple2"
-   ,_0: $Basics.round(tetromino.pivot.c)
-   ,_1: $Basics.round(tetromino.pivot.r)},
-   tetromino);
+   var tetromino = A2($Tetromino.shift,
+   {ctor: "_Tuple2",_0: 0,_1: 5},
+   $Tetromino.j);
+   var isIntersecting = F2(function (_p0,board) {
+      var _p1 = _p0;
+      var checkLocation = function (location) {
+         return A2($Dict.member,location,board);
+      };
+      return A2($List.any,checkLocation,_p1.shape);
+   });
+   var clearRow = F2(function (row,board) {
+      var shift = F3(function (_p2,block,newBoard) {
+         var _p3 = _p2;
+         var _p5 = _p3._0;
+         var _p4 = _p3._1;
+         return _U.cmp(_p5,row) < 0 ? A3($Dict.insert,
+         {ctor: "_Tuple2",_0: _p5,_1: _p4},
+         block,
+         newBoard) : _U.cmp(_p5,row) > 0 ? A3($Dict.insert,
+         {ctor: "_Tuple2",_0: _p5 - 1,_1: _p4},
+         block,
+         newBoard) : newBoard;
+      });
+      return A3($Dict.foldr,shift,$Dict.empty,board);
+   });
+   var cumulativeSum = A2($List.scanl,
+   F2(function (x,y) {    return x + y;}),
+   0);
+   var iota = function (n) {
+      return cumulativeSum(A2($List.repeat,n - 1,1));
+   };
    var rows = 20;
    var cols = 10;
    var background = function () {
@@ -7520,10 +8273,10 @@ Elm.Board.make = function (_elm) {
       return $Graphics$Collage.group(_U.list([border
                                              ,A2($Graphics$Collage.filled,$Color.black,shape)]));
    }();
-   var addBlock = F3(function (_p0,block,form) {
-      var _p1 = _p0;
-      var y = $Basics.toFloat(_p1._0) * $Block.size;
-      var x = $Basics.toFloat(_p1._1) * $Block.size;
+   var addBlock = F3(function (_p6,block,form) {
+      var _p7 = _p6;
+      var y = $Basics.toFloat(_p7._0) * $Block.size;
+      var x = $Basics.toFloat(_p7._1) * $Block.size;
       var offSetY = (0 - $Basics.toFloat(rows - 1)) / 2 * $Block.size;
       var offSetX = (0 - $Basics.toFloat(cols - 1)) / 2 * $Block.size;
       var blockForm = A2($Graphics$Collage.move,
@@ -7546,6 +8299,50 @@ Elm.Board.make = function (_elm) {
    {ctor: "_Tuple2",_0: 0,_1: 1},
    $Block.Block($Color.yellow),
    testForm$);
+   var checkRow = F2(function (row,board) {
+      var blocks = A2($Dict.filter,
+      F2(function (_p9,_p8) {
+         var _p10 = _p9;
+         return _U.eq(_p10._0,row);
+      }),
+      board);
+      return _U.eq($Dict.size(blocks),cols);
+   });
+   var clearLines = function () {
+      var clearLines$ = F3(function (row,lines,board) {
+         clearLines$: while (true) if (_U.cmp(row,rows) > -1)
+         return {ctor: "_Tuple2",_0: lines,_1: board};
+         else if (A2(checkRow,row,board)) {
+                  var _v4 = row,_v5 = lines + 1,_v6 = A2(clearRow,row,board);
+                  row = _v4;
+                  lines = _v5;
+                  board = _v6;
+                  continue clearLines$;
+               } else {
+                  var _v7 = row + 1,_v8 = lines,_v9 = board;
+                  row = _v7;
+                  lines = _v8;
+                  board = _v9;
+                  continue clearLines$;
+               }
+      });
+      return A2(clearLines$,0,0);
+   }();
+   var inBounds = function (_p11) {
+      var _p12 = _p11;
+      var checkLocation = function (_p13) {
+         var _p14 = _p13;
+         var _p15 = _p14._1;
+         return _U.cmp(_p14._0,0) > -1 && (_U.cmp(_p15,
+         0) > -1 && _U.cmp(_p15,cols) < 0);
+      };
+      return A2($List.all,checkLocation,_p12.shape);
+   };
+   var isValid = F2(function (tetromino,board) {
+      return inBounds(tetromino) && $Basics.not(A2(isIntersecting,
+      tetromino,
+      board));
+   });
    var $new = $Dict.fromList;
    var testBoard = $new(_U.list([{ctor: "_Tuple2"
                                  ,_0: {ctor: "_Tuple2",_0: 0,_1: 0}
@@ -7559,18 +8356,44 @@ Elm.Board.make = function (_elm) {
                                 ,{ctor: "_Tuple2"
                                  ,_0: {ctor: "_Tuple2",_0: 1,_1: 1}
                                  ,_1: $Block.Block($Color.green)}]));
-   var fromTetromino = function (tetromino) {
-      var toTuple = F2(function (block,location) {
-         return {ctor: "_Tuple2",_0: location,_1: block};
-      });
-      return $new(A2($List.map,
-      toTuple(tetromino.block),
-      tetromino.shape));
-   };
-   var main = A3($Graphics$Collage.collage,
-   600,
-   600,
-   _U.list([toForm(fromTetromino(tetromino))]));
+   var fillRow = F3(function (row,block,board) {
+      var blocks = A2($List.repeat,cols,block);
+      var rows = A2($List.repeat,cols,row);
+      var columns = iota(cols);
+      var locations = A3($List.map2,
+      F2(function (v0,v1) {
+         return {ctor: "_Tuple2",_0: v0,_1: v1};
+      }),
+      rows,
+      columns);
+      var filledRow = $new(A3($List.map2,
+      F2(function (v0,v1) {
+         return {ctor: "_Tuple2",_0: v0,_1: v1};
+      }),
+      locations,
+      blocks));
+      return A2($Dict.union,filledRow,board);
+   });
+   var addTetromino = F2(function (_p16,board) {
+      var _p17 = _p16;
+      var asBoard = $new(A3($List.map2,
+      F2(function (v0,v1) {
+         return {ctor: "_Tuple2",_0: v0,_1: v1};
+      }),
+      _p17.shape,
+      A2($List.repeat,4,_p17.block)));
+      return A2($Dict.union,asBoard,board);
+   });
+   var test = $new(_U.list([]));
+   var main = A2($Graphics$Element.flow,
+   $Graphics$Element.down,
+   _U.list([A3($Graphics$Collage.collage,
+           600,
+           600,
+           _U.list([toForm(A2(addTetromino,tetromino,test))]))
+           ,$Graphics$Element.show(A2(isValid,tetromino,test))
+           ,$Graphics$Element.show(A2(isIntersecting,tetromino,test))
+           ,$Graphics$Element.show(inBounds(tetromino))]));
    return _elm.Board.values = {_op: _op
                               ,$new: $new
                               ,cols: cols
@@ -7582,8 +8405,236 @@ Elm.Board.make = function (_elm) {
                               ,testForm$: testForm$
                               ,testForm$$: testForm$$
                               ,testBoard: testBoard
-                              ,fromTetromino: fromTetromino
+                              ,cumulativeSum: cumulativeSum
+                              ,iota: iota
+                              ,fillRow: fillRow
+                              ,checkRow: checkRow
+                              ,clearRow: clearRow
+                              ,clearLines: clearLines
+                              ,addTetromino: addTetromino
+                              ,inBounds: inBounds
+                              ,isIntersecting: isIntersecting
+                              ,isValid: isValid
                               ,tetromino: tetromino
-                              ,tetromino$: tetromino$
+                              ,test: test
+                              ,main: main};
+};
+Elm.Controller = Elm.Controller || {};
+Elm.Controller.make = function (_elm) {
+   "use strict";
+   _elm.Controller = _elm.Controller || {};
+   if (_elm.Controller.values) return _elm.Controller.values;
+   var _U = Elm.Native.Utils.make(_elm),
+   $Basics = Elm.Basics.make(_elm),
+   $Debug = Elm.Debug.make(_elm),
+   $Graphics$Element = Elm.Graphics.Element.make(_elm),
+   $Keyboard = Elm.Keyboard.make(_elm),
+   $List = Elm.List.make(_elm),
+   $Maybe = Elm.Maybe.make(_elm),
+   $Result = Elm.Result.make(_elm),
+   $Signal = Elm.Signal.make(_elm),
+   $Time = Elm.Time.make(_elm);
+   var _op = {};
+   var Tick = function (a) {    return {ctor: "Tick",_0: a};};
+   var Shift = function (a) {    return {ctor: "Shift",_0: a};};
+   var Rotate = {ctor: "Rotate"};
+   var arrowsToInput = function (_p0) {
+      var _p1 = _p0;
+      var _p2 = _p1.y;
+      return _U.eq(_p2,1) ? Rotate : Shift({ctor: "_Tuple2"
+                                           ,_0: _p2
+                                           ,_1: _p1.x});
+   };
+   var inputs = function () {
+      var keys = A2($Signal.map,arrowsToInput,$Keyboard.arrows);
+      var ticks = A2($Signal.map,Tick,$Time.fps(30));
+      return A2($Signal.merge,ticks,keys);
+   }();
+   var main = A2($Signal.map,$Graphics$Element.show,inputs);
+   return _elm.Controller.values = {_op: _op
+                                   ,Rotate: Rotate
+                                   ,Shift: Shift
+                                   ,Tick: Tick
+                                   ,arrowsToInput: arrowsToInput
+                                   ,inputs: inputs
+                                   ,main: main};
+};
+Elm.State = Elm.State || {};
+Elm.State.make = function (_elm) {
+   "use strict";
+   _elm.State = _elm.State || {};
+   if (_elm.State.values) return _elm.State.values;
+   var _U = Elm.Native.Utils.make(_elm),
+   $Basics = Elm.Basics.make(_elm),
+   $Board = Elm.Board.make(_elm),
+   $Controller = Elm.Controller.make(_elm),
+   $Debug = Elm.Debug.make(_elm),
+   $Graphics$Collage = Elm.Graphics.Collage.make(_elm),
+   $Graphics$Element = Elm.Graphics.Element.make(_elm),
+   $List = Elm.List.make(_elm),
+   $Maybe = Elm.Maybe.make(_elm),
+   $Random = Elm.Random.make(_elm),
+   $Result = Elm.Result.make(_elm),
+   $Signal = Elm.Signal.make(_elm),
+   $Tetromino = Elm.Tetromino.make(_elm),
+   $Time = Elm.Time.make(_elm);
+   var _op = {};
+   var useIfValid = F2(function (current,newState) {
+      return A2($Board.isValid,
+      newState.falling,
+      newState.board) ? newState : current;
+   });
+   var tryKicks = F3(function (shifts,current,nextState) {
+      tryKicks: while (true) {
+         var _p0 = shifts;
+         if (_p0.ctor === "[]") {
+               return current;
+            } else {
+               var shifted = A2($Tetromino.shift,_p0._0,nextState.falling);
+               if (A2($Board.isValid,shifted,nextState.board))
+               return _U.update(nextState,{falling: shifted}); else {
+                     var _v1 = _p0._1,_v2 = current,_v3 = nextState;
+                     shifts = _v1;
+                     current = _v2;
+                     nextState = _v3;
+                     continue tryKicks;
+                  }
+            }
+      }
+   });
+   var wallKick = F2(function (current,nextState) {
+      var range = nextState.falling.cols / 2 | 0;
+      var shifts = A2($List.concatMap,
+      function (n) {
+         return _U.list([{ctor: "_Tuple2",_0: 0,_1: n}
+                        ,{ctor: "_Tuple2",_0: 0,_1: 0 - n}]);
+      },
+      _U.range(1,range));
+      return A3(tryKicks,shifts,current,nextState);
+   });
+   var floorKick = F2(function (current,nextState) {
+      var range = nextState.falling.rows / 2 | 0;
+      var shifts = A2($List.map,
+      function (n) {
+         return {ctor: "_Tuple2",_0: 0,_1: n};
+      },
+      _U.range(1,range));
+      return A3(tryKicks,shifts,current,nextState);
+   });
+   var checkBag = function (state) {
+      if ($Basics.not($List.isEmpty(state.bag))) return state;
+      else {
+            var _p1 = A2($Random.generate,$Tetromino.bag,state.seed);
+            var bag = _p1._0;
+            var seed = _p1._1;
+            return _U.update(state,{bag: bag,seed: seed});
+         }
+   };
+   var view = function (state) {
+      var boardForm = $Board.toForm(A2($Board.addTetromino,
+      state.falling,
+      state.board));
+      var screenHeight = 800;
+      var screenWidth = 800;
+      return A3($Graphics$Collage.collage,
+      screenWidth,
+      screenHeight,
+      _U.list([boardForm]));
+   };
+   var initialSeed = 42;
+   var startingShift = {ctor: "_Tuple2",_0: 20,_1: 5};
+   var defaultState = function () {
+      var _p2 = A2($Random.generate,
+      $Tetromino.bag,
+      $Random.initialSeed(initialSeed));
+      var bag = _p2._0;
+      var seed = _p2._1;
+      var falling = A2($Maybe.withDefault,
+      $Tetromino.i,
+      $List.head(bag));
+      var bag$ = A2($List.drop,1,bag);
+      return {falling: A2($Tetromino.shift,startingShift,falling)
+             ,seed: seed
+             ,bag: bag$
+             ,board: $Board.$new(_U.list([]))
+             ,time: 0
+             ,nextShift: $Time.second
+             ,shiftDelay: $Time.second};
+   }();
+   var nextTetromino = function (state) {
+      var state$ = checkBag(state);
+      var nextFalling = A2($Tetromino.shift,
+      startingShift,
+      A2($Maybe.withDefault,$Tetromino.i,$List.head(state$.bag)));
+      var nextBag = A2($List.drop,1,state$.bag);
+      var _p3 = $Board.clearLines(A2($Board.addTetromino,
+      state$.falling,
+      state$.board));
+      var lines = _p3._0;
+      var nextBoard = _p3._1;
+      return _U.update(state$,
+      {falling: nextFalling,bag: nextBag,board: nextBoard});
+   };
+   var checkTick = function (state) {
+      if (_U.cmp(state.time,state.nextShift) < 0) return state;
+      else {
+            var nextShift = state.time + state.shiftDelay;
+            var shifted = A2($Tetromino.shift,
+            {ctor: "_Tuple2",_0: -1,_1: 0},
+            state.falling);
+            var isValid = A2($Board.isValid,shifted,state.board);
+            var state$ = isValid ? _U.update(state,
+            {falling: shifted}) : nextTetromino(state);
+            return _U.update(state$,{nextShift: nextShift});
+         }
+   };
+   var update = F2(function (input,state) {
+      var useIfValid$ = useIfValid(state);
+      var _p4 = input;
+      switch (_p4.ctor)
+      {case "Rotate": var rotated = _U.update(state,
+           {falling: $Tetromino.rotate(state.falling)});
+           var nextState = useIfValid$(rotated);
+           var nextState$ = _U.eq(nextState,state) ? A2(wallKick,
+           state,
+           rotated) : nextState;
+           var nextState$$ = _U.eq(nextState$,state) ? A2(floorKick,
+           state,
+           rotated) : nextState$;
+           return nextState$$;
+         case "Shift": return useIfValid$(_U.update(state,
+           {falling: A2($Tetromino.shift,_p4._0,state.falling)}));
+         default: return useIfValid$(checkTick(_U.update(state,
+           {time: state.time + _p4._0})));}
+   });
+   var states = A3($Signal.foldp,
+   update,
+   defaultState,
+   $Controller.inputs);
+   var main = A2($Signal.map,view,states);
+   var State = F7(function (a,b,c,d,e,f,g) {
+      return {falling: a
+             ,seed: b
+             ,bag: c
+             ,board: d
+             ,time: e
+             ,nextShift: f
+             ,shiftDelay: g};
+   });
+   return _elm.State.values = {_op: _op
+                              ,State: State
+                              ,startingShift: startingShift
+                              ,initialSeed: initialSeed
+                              ,defaultState: defaultState
+                              ,view: view
+                              ,checkTick: checkTick
+                              ,checkBag: checkBag
+                              ,nextTetromino: nextTetromino
+                              ,tryKicks: tryKicks
+                              ,wallKick: wallKick
+                              ,floorKick: floorKick
+                              ,useIfValid: useIfValid
+                              ,update: update
+                              ,states: states
                               ,main: main};
 };
